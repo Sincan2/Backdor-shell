@@ -5,7 +5,7 @@ $SHELL_CONFIG = array(
     'hostname' => 'Sincan2',
 );
 
-$password = 'your_password_here'; // Set your password here
+$password = 'Sincan2'; // Set your password here
 
 session_start();
 
