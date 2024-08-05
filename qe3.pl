@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 use IO::Socket::INET;
-use POSIX ":sys_wait_h";
+use POSIX qw(setsid);
 use File::Basename;
 use File::Spec::Functions qw(rel2abs);
 
