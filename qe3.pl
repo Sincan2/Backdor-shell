@@ -98,9 +98,11 @@ sub daemonize {
         exit 0;
     }
     setsid() or die "setsid failed: $!";
+    chdir '/' or die "Can't chdir to /: $!";
     open(STDIN, '/dev/null') or die "Can't read /dev/null: $!";
     open(STDOUT, '>>/dev/null') or die "Can't write to /dev/null: $!";
     open(STDERR, '>>/dev/null') or die "Can't write to /dev/null: $!";
+    umask 0;
 }
 
 # Pastikan cron job ada
@@ -109,11 +111,11 @@ ensure_cron_job();
 # Memeriksa apakah skrip sudah berjalan
 check_if_already_running();
 
-# Membuat file PID
-create_pid_file();
-
 # Jalankan daemonize
 daemonize();
+
+# Membuat file PID
+create_pid_file();
 
 my $pid = fork();
 if (!defined $pid) {
