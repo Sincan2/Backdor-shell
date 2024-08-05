@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 use IO::Socket::INET;
-use POSIX qw(setsid);
+use POSIX qw(setsid WNOHANG);
 use File::Basename;
 use File::Spec::Functions qw(rel2abs);
 
