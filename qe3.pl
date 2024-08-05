@@ -2,9 +2,13 @@
 use strict;
 use warnings;
 use IO::Socket::INET;
-use POSIX qw(setsid WNOHANG);
+use POSIX qw(:sys_wait_h);
 use File::Basename;
 use File::Spec::Functions qw(rel2abs);
+use POSIX ();
+
+# Definisikan WNOHANG secara manual
+use constant WNOHANG => &POSIX::WNOHANG;
 
 # Path ke file PID
 my $pid_file = '/dev/shm/qe3.pid';
@@ -97,12 +101,10 @@ sub daemonize {
     if ($pid > 0) {
         exit 0;
     }
-    setsid() or die "setsid failed: $!";
-    chdir '/' or die "Can't chdir to /: $!";
+    POSIX::setsid() or die "setsid failed: $!";
     open(STDIN, '/dev/null') or die "Can't read /dev/null: $!";
     open(STDOUT, '>>/dev/null') or die "Can't write to /dev/null: $!";
     open(STDERR, '>>/dev/null') or die "Can't write to /dev/null: $!";
-    umask 0;
 }
 
 # Pastikan cron job ada
