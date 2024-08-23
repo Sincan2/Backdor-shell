@@ -2,7 +2,7 @@
 
 $SHELL_CONFIG = array(
     'username' => 'Sincan2',
-    'hostname' => 'Sincan2',
+    'hostname' => 'qe3',
 );
 
 $password = 'Sincan2'; // Set your password here
