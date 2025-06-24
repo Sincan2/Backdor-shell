@@ -39,7 +39,7 @@
 // Defines from listener
 #define HOME "/"
 #define ECHAR 0x1d
-#define PORT 20201
+#define PORT 441
 #define BUF  32768
 
 // Globals from listener
